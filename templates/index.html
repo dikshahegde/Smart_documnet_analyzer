@@ -1,0 +1,1013 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Smart Document Analyzer</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0e0f14;
+    --surface: #161820;
+    --card: #1c1e2a;
+    --border: #2a2d3e;
+    --border-light: #363a52;
+    --text: #e8eaf6;
+    --text-muted: #8b90b8;
+    --text-dim: #565b7a;
+    --accent: #7c6ff7;
+    --accent-glow: rgba(124,111,247,0.15);
+    --accent2: #4ecdc4;
+    --accent3: #ff6b6b;
+    --accent4: #ffd93d;
+    --success: #51cf66;
+    --font: 'Space Grotesk', sans-serif;
+    --mono: 'JetBrains Mono', monospace;
+    --radius: 12px;
+    --radius-sm: 8px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: var(--font);
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Top bar */
+  .topbar {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 14px 32px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+  .logo {
+    width: 32px; height: 32px;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px;
+  }
+  .topbar-title { font-weight: 700; font-size: 17px; letter-spacing: -0.3px; }
+  .topbar-sub { font-size: 12px; color: var(--text-muted); margin-left: auto; }
+  .badge {
+    background: var(--accent-glow);
+    color: var(--accent);
+    border: 1px solid rgba(124,111,247,0.3);
+    border-radius: 20px;
+    font-size: 11px;
+    padding: 3px 10px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+  }
+
+  /* Layout */
+  .main { display: flex; min-height: calc(100vh - 62px); }
+  .sidebar {
+    width: 260px;
+    min-width: 260px;
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    padding: 24px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .sidebar-label {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 1.5px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    padding: 8px 12px 4px;
+  }
+  .nav-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    font-size: 14px;
+    color: var(--text-muted);
+    transition: all 0.15s;
+    user-select: none;
+  }
+  .nav-item:hover { background: var(--card); color: var(--text); }
+  .nav-item.active { background: var(--accent-glow); color: var(--accent); border: 1px solid rgba(124,111,247,0.2); }
+  .nav-icon { font-size: 15px; width: 20px; text-align: center; }
+  .content { flex: 1; padding: 32px; overflow-y: auto; }
+
+  /* Upload Zone */
+  .upload-zone {
+    border: 2px dashed var(--border-light);
+    border-radius: 16px;
+    padding: 60px 40px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.2s;
+    background: var(--card);
+    position: relative;
+    overflow: hidden;
+  }
+  .upload-zone:hover, .upload-zone.dragover {
+    border-color: var(--accent);
+    background: var(--accent-glow);
+  }
+  .upload-zone input { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; }
+  .upload-icon { font-size: 48px; margin-bottom: 16px; display: block; }
+  .upload-title { font-size: 22px; font-weight: 700; margin-bottom: 8px; }
+  .upload-sub { color: var(--text-muted); font-size: 14px; line-height: 1.6; }
+  .format-pills { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin-top: 20px; }
+  .format-pill {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 4px 14px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-muted);
+    font-family: var(--mono);
+  }
+
+  /* Progress */
+  .progress-wrap { display: none; margin-top: 20px; }
+  .progress-bar {
+    height: 4px;
+    background: var(--border);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    border-radius: 2px;
+    animation: progress-anim 1.5s ease infinite;
+    width: 60%;
+  }
+  @keyframes progress-anim {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(200%); }
+  }
+  .progress-text { font-size: 13px; color: var(--text-muted); margin-top: 8px; text-align: center; }
+
+  /* Section panels */
+  .panel { display: none; }
+  .panel.active { display: block; animation: fadeIn 0.3s ease; }
+  @keyframes fadeIn { from { opacity:0; transform: translateY(8px); } to { opacity:1; transform: translateY(0); } }
+
+  .section-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 24px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .section-icon { font-size: 22px; }
+  .section-title { font-size: 20px; font-weight: 700; }
+  .section-sub { font-size: 13px; color: var(--text-muted); margin-left: auto; }
+
+  /* Cards */
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px;
+    margin-bottom: 16px;
+  }
+  .card-title {
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 1px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    margin-bottom: 12px;
+  }
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+  .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+
+  /* Stats */
+  .stat-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 18px 20px;
+    text-align: center;
+  }
+  .stat-val { font-size: 28px; font-weight: 700; color: var(--accent); }
+  .stat-label { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
+
+  /* Summary tabs */
+  .tab-bar { display: flex; gap: 4px; margin-bottom: 16px; background: var(--surface); border-radius: var(--radius-sm); padding: 4px; }
+  .tab {
+    flex: 1;
+    padding: 8px;
+    text-align: center;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    color: var(--text-muted);
+    transition: all 0.15s;
+  }
+  .tab.active { background: var(--card); color: var(--text); border: 1px solid var(--border); }
+  .tab-content { display: none; }
+  .tab-content.active { display: block; animation: fadeIn 0.2s; }
+
+  /* Keywords */
+  .keyword-cloud { display: flex; flex-wrap: wrap; gap: 8px; }
+  .keyword {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 5px 14px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .keyword:hover { border-color: var(--accent); color: var(--accent); }
+  .keyword.large { font-size: 15px; padding: 7px 18px; border-color: var(--accent); color: var(--accent); background: var(--accent-glow); }
+
+  /* Sentiment */
+  .sentiment-bar-wrap { margin: 12px 0; }
+  .sentiment-label { display: flex; justify-content: space-between; font-size: 12px; color: var(--text-muted); margin-bottom: 4px; }
+  .sentiment-track { height: 8px; background: var(--border); border-radius: 4px; overflow: hidden; }
+  .sentiment-fill { height: 100%; border-radius: 4px; transition: width 0.8s ease; }
+  .fill-pos { background: var(--success); }
+  .fill-neg { background: var(--accent3); }
+  .fill-acc { background: var(--accent); }
+
+  .sentiment-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 16px;
+    border-radius: 20px;
+    font-weight: 700;
+    font-size: 14px;
+    margin-bottom: 16px;
+  }
+  .sent-positive { background: rgba(81,207,102,0.1); color: var(--success); border: 1px solid rgba(81,207,102,0.3); }
+  .sent-negative { background: rgba(255,107,107,0.1); color: var(--accent3); border: 1px solid rgba(255,107,107,0.3); }
+  .sent-neutral { background: rgba(139,144,184,0.1); color: var(--text-muted); border: 1px solid var(--border); }
+
+  .tone-pill {
+    display: inline-block;
+    background: rgba(78,205,196,0.1);
+    color: var(--accent2);
+    border: 1px solid rgba(78,205,196,0.3);
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 4px 12px;
+    margin: 4px;
+  }
+
+  /* Entities */
+  .entity-group { margin-bottom: 20px; }
+  .entity-group-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-dim);
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+  .entity-list { display: flex; flex-wrap: wrap; gap: 8px; }
+  .entity-tag {
+    font-family: var(--mono);
+    font-size: 12px;
+    padding: 4px 10px;
+    border-radius: 6px;
+    border: 1px solid;
+  }
+  .et-date { color: #ffd93d; border-color: rgba(255,217,61,0.3); background: rgba(255,217,61,0.08); }
+  .et-email { color: var(--accent2); border-color: rgba(78,205,196,0.3); background: rgba(78,205,196,0.08); }
+  .et-phone { color: #a8dadc; border-color: rgba(168,218,220,0.3); background: rgba(168,218,220,0.08); }
+  .et-url { color: var(--accent); border-color: rgba(124,111,247,0.3); background: rgba(124,111,247,0.08); }
+  .et-org { color: #ff9ff3; border-color: rgba(255,159,243,0.3); background: rgba(255,159,243,0.08); }
+  .et-money { color: var(--success); border-color: rgba(81,207,102,0.3); background: rgba(81,207,102,0.08); }
+  .et-pct { color: var(--accent4); border-color: rgba(255,217,61,0.3); background: rgba(255,217,61,0.08); }
+  .et-name { color: #f9ca24; border-color: rgba(249,202,36,0.3); background: rgba(249,202,36,0.08); }
+
+  /* Classification */
+  .classify-main {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 20px;
+    background: var(--surface);
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    margin-bottom: 16px;
+  }
+  .classify-icon { font-size: 40px; }
+  .classify-category { font-size: 22px; font-weight: 700; }
+  .classify-meta { font-size: 13px; color: var(--text-muted); margin-top: 4px; }
+  .confidence-bar { margin-top: 8px; }
+  .conf-track { height: 4px; background: var(--border); border-radius: 2px; overflow: hidden; margin-top: 6px; }
+  .conf-fill { height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent2)); border-radius: 2px; }
+
+  /* Q&A Chat */
+  .chat-messages {
+    min-height: 200px;
+    max-height: 400px;
+    overflow-y: auto;
+    padding: 16px;
+    background: var(--surface);
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    margin-bottom: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .chat-empty { color: var(--text-dim); font-size: 14px; text-align: center; margin: auto; }
+  .msg { max-width: 85%; }
+  .msg.user { align-self: flex-end; }
+  .msg.bot { align-self: flex-start; }
+  .msg-bubble {
+    padding: 12px 16px;
+    border-radius: var(--radius);
+    font-size: 14px;
+    line-height: 1.6;
+  }
+  .user .msg-bubble { background: var(--accent-glow); border: 1px solid rgba(124,111,247,0.3); color: var(--text); }
+  .bot .msg-bubble { background: var(--card); border: 1px solid var(--border); }
+  .msg-sources { font-size: 11px; color: var(--text-dim); margin-top: 6px; font-style: italic; }
+  .chat-input-row { display: flex; gap: 8px; }
+  .chat-input-row input {
+    flex: 1;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 12px 16px;
+    color: var(--text);
+    font-family: var(--font);
+    font-size: 14px;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+  .chat-input-row input:focus { border-color: var(--accent); }
+  .btn {
+    background: var(--accent);
+    color: white;
+    border: none;
+    border-radius: var(--radius-sm);
+    padding: 12px 20px;
+    font-family: var(--font);
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .btn:hover { background: #6558e0; }
+  .btn:active { transform: scale(0.97); }
+  .btn-sm {
+    padding: 6px 14px;
+    font-size: 12px;
+    border-radius: 6px;
+  }
+  .btn-ghost {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+  }
+  .btn-ghost:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-glow); }
+
+  /* Tables */
+  .table-wrap { overflow-x: auto; border-radius: var(--radius); border: 1px solid var(--border); margin-bottom: 16px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  thead th {
+    background: var(--surface);
+    padding: 12px 14px;
+    text-align: left;
+    font-weight: 600;
+    font-size: 12px;
+    color: var(--text-muted);
+    border-bottom: 1px solid var(--border);
+    letter-spacing: 0.5px;
+  }
+  tbody td {
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text-muted);
+  }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr:hover td { background: rgba(255,255,255,0.02); color: var(--text); }
+
+  /* Notification */
+  .notif {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 12px 20px;
+    font-size: 14px;
+    transform: translateY(80px);
+    opacity: 0;
+    transition: all 0.3s;
+    z-index: 999;
+  }
+  .notif.show { transform: translateY(0); opacity: 1; }
+  .notif.success { border-color: rgba(81,207,102,0.4); color: var(--success); }
+  .notif.error { border-color: rgba(255,107,107,0.4); color: var(--accent3); }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: var(--surface); }
+  ::-webkit-scrollbar-thumb { background: var(--border-light); border-radius: 3px; }
+
+  .text-preview {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-muted);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 16px;
+    max-height: 200px;
+    overflow-y: auto;
+    line-height: 1.7;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  .empty-state { text-align: center; color: var(--text-dim); padding: 40px; font-size: 14px; }
+  .bullet-list { list-style: none; padding: 0; }
+  .bullet-list li {
+    padding: 8px 0 8px 24px;
+    position: relative;
+    font-size: 14px;
+    line-height: 1.6;
+    border-bottom: 1px solid var(--border);
+    color: var(--text-muted);
+  }
+  .bullet-list li:last-child { border-bottom: none; }
+  .bullet-list li::before {
+    content: '▸';
+    position: absolute;
+    left: 0;
+    color: var(--accent);
+  }
+
+  .freq-bar-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .freq-word { font-family: var(--mono); font-size: 12px; color: var(--text-muted); width: 120px; flex-shrink: 0; }
+  .freq-track { flex: 1; height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; }
+  .freq-fill { height: 100%; border-radius: 3px; background: linear-gradient(90deg, var(--accent), var(--accent2)); }
+  .freq-val { font-size: 11px; color: var(--text-dim); width: 30px; text-align: right; flex-shrink: 0; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="logo">🧠</div>
+  <span class="topbar-title">Smart Document Analyzer</span>
+  <span class="badge">AI-Powered</span>
+  <span class="topbar-sub" id="filename-display">No document loaded</span>
+</div>
+
+<div class="main">
+  <div class="sidebar" id="sidebar">
+    <div class="sidebar-label">Analysis</div>
+    <div class="nav-item active" onclick="showPanel('upload')" id="nav-upload">
+      <span class="nav-icon">📂</span> Upload Document
+    </div>
+    <div class="nav-item" onclick="showPanel('overview')" id="nav-overview">
+      <span class="nav-icon">📊</span> Overview
+    </div>
+    <div class="nav-item" onclick="showPanel('summary')" id="nav-summary">
+      <span class="nav-icon">📝</span> Summarization
+    </div>
+    <div class="nav-item" onclick="showPanel('keywords')" id="nav-keywords">
+      <span class="nav-icon">🔍</span> Keywords & Topics
+    </div>
+    <div class="nav-item" onclick="showPanel('sentiment')" id="nav-sentiment">
+      <span class="nav-icon">💭</span> Sentiment & Tone
+    </div>
+    <div class="nav-item" onclick="showPanel('entities')" id="nav-entities">
+      <span class="nav-icon">🏷️</span> Named Entities
+    </div>
+    <div class="nav-item" onclick="showPanel('classification')" id="nav-classification">
+      <span class="nav-icon">🗂️</span> Classification
+    </div>
+    <div class="nav-item" onclick="showPanel('tables')" id="nav-tables">
+      <span class="nav-icon">📑</span> Tables
+    </div>
+    <div class="nav-item" onclick="showPanel('chat')" id="nav-chat">
+      <span class="nav-icon">💬</span> Chat with Doc
+    </div>
+  </div>
+
+  <div class="content">
+
+    <!-- UPLOAD -->
+    <div class="panel active" id="panel-upload">
+      <div class="upload-zone" id="dropzone">
+        <input type="file" id="file-input" accept=".pdf,.docx,.txt,.png,.jpg,.jpeg">
+        <span class="upload-icon">📄</span>
+        <div class="upload-title">Drop your document here</div>
+        <div class="upload-sub">or click to browse — supports PDF, DOCX, TXT, and images</div>
+        <div class="format-pills">
+          <span class="format-pill">.pdf</span>
+          <span class="format-pill">.docx</span>
+          <span class="format-pill">.txt</span>
+          <span class="format-pill">.png</span>
+          <span class="format-pill">.jpg</span>
+        </div>
+      </div>
+      <div class="progress-wrap" id="progress-wrap">
+        <div class="progress-bar"><div class="progress-fill"></div></div>
+        <div class="progress-text" id="progress-text">Extracting text and analyzing...</div>
+      </div>
+    </div>
+
+    <!-- OVERVIEW -->
+    <div class="panel" id="panel-overview">
+      <div class="section-header">
+        <span class="section-icon">📊</span>
+        <span class="section-title">Document Overview</span>
+        <span class="section-sub" id="ov-file"></span>
+      </div>
+      <div class="grid-4" id="stats-grid" style="margin-bottom:20px"></div>
+      <div class="card">
+        <div class="card-title">Text Preview</div>
+        <div class="text-preview" id="text-preview"></div>
+      </div>
+      <div class="card">
+        <div class="card-title">Detected Structure</div>
+        <div id="structure-info"></div>
+      </div>
+    </div>
+
+    <!-- SUMMARY -->
+    <div class="panel" id="panel-summary">
+      <div class="section-header">
+        <span class="section-icon">📝</span>
+        <span class="section-title">Smart Summarization</span>
+      </div>
+      <div class="tab-bar">
+        <div class="tab active" onclick="switchTab('sum','short',this)">⚡ TL;DR</div>
+        <div class="tab" onclick="switchTab('sum','detailed',this)">📖 Detailed</div>
+        <div class="tab" onclick="switchTab('sum','bullets',this)">• Bullet Points</div>
+        <div class="tab" onclick="switchTab('sum','eli5',this)">👶 ELI5</div>
+      </div>
+      <div class="card">
+        <div id="sum-short" class="tab-content active" style="font-size:15px;line-height:1.8;color:var(--text-muted)"></div>
+        <div id="sum-detailed" class="tab-content" style="font-size:14px;line-height:1.8;color:var(--text-muted)"></div>
+        <div id="sum-bullets" class="tab-content"><ul class="bullet-list" id="bullet-list"></ul></div>
+        <div id="sum-eli5" class="tab-content" style="font-size:15px;line-height:1.8;color:var(--text-muted)"></div>
+      </div>
+    </div>
+
+    <!-- KEYWORDS -->
+    <div class="panel" id="panel-keywords">
+      <div class="section-header">
+        <span class="section-icon">🔍</span>
+        <span class="section-title">Keywords & Topics</span>
+      </div>
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-title">Top Keywords (TF-IDF)</div>
+          <div class="keyword-cloud" id="keyword-cloud"></div>
+        </div>
+        <div class="card">
+          <div class="card-title">Key Phrases (Bigrams)</div>
+          <div class="keyword-cloud" id="bigram-cloud"></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">Word Frequency Analysis</div>
+        <div id="freq-bars"></div>
+      </div>
+    </div>
+
+    <!-- SENTIMENT -->
+    <div class="panel" id="panel-sentiment">
+      <div class="section-header">
+        <span class="section-icon">💭</span>
+        <span class="section-title">Sentiment & Tone Analysis</span>
+      </div>
+      <div class="grid-2">
+        <div class="card" id="sentiment-main"></div>
+        <div class="card" id="tone-card"></div>
+      </div>
+      <div class="card">
+        <div class="card-title">Score Breakdown</div>
+        <div id="sentiment-bars"></div>
+      </div>
+    </div>
+
+    <!-- ENTITIES -->
+    <div class="panel" id="panel-entities">
+      <div class="section-header">
+        <span class="section-icon">🏷️</span>
+        <span class="section-title">Named Entity Recognition</span>
+      </div>
+      <div id="entity-groups"></div>
+    </div>
+
+    <!-- CLASSIFICATION -->
+    <div class="panel" id="panel-classification">
+      <div class="section-header">
+        <span class="section-icon">🗂️</span>
+        <span class="section-title">Document Classification</span>
+      </div>
+      <div id="classify-main"></div>
+      <div class="card">
+        <div class="card-title">Category Scores</div>
+        <div id="classify-scores"></div>
+      </div>
+    </div>
+
+    <!-- TABLES -->
+    <div class="panel" id="panel-tables">
+      <div class="section-header">
+        <span class="section-icon">📑</span>
+        <span class="section-title">Extracted Tables</span>
+      </div>
+      <div id="tables-content"></div>
+    </div>
+
+    <!-- CHAT -->
+    <div class="panel" id="panel-chat">
+      <div class="section-header">
+        <span class="section-icon">💬</span>
+        <span class="section-title">Chat with Document</span>
+      </div>
+      <div class="chat-messages" id="chat-messages">
+        <div class="chat-empty" id="chat-empty">Ask anything about your document — I'll find the answers! 🔎</div>
+      </div>
+      <div class="chat-input-row">
+        <input type="text" id="chat-input" placeholder="Ask a question about your document..." onkeydown="if(event.key==='Enter') sendChat()">
+        <button class="btn" onclick="sendChat()">Send ↗</button>
+      </div>
+      <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap" id="suggestion-chips"></div>
+    </div>
+
+  </div>
+</div>
+
+<div class="notif" id="notif"></div>
+
+<script>
+let docData = null;
+let fullText = '';
+
+// ─── File Upload ───
+const dropzone = document.getElementById('dropzone');
+const fileInput = document.getElementById('file-input');
+
+dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('dragover'); });
+dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
+dropzone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropzone.classList.remove('dragover');
+  const file = e.dataTransfer.files[0];
+  if (file) uploadFile(file);
+});
+fileInput.addEventListener('change', () => {
+  if (fileInput.files[0]) uploadFile(fileInput.files[0]);
+});
+
+function uploadFile(file) {
+  const pw = document.getElementById('progress-wrap');
+  const pt = document.getElementById('progress-text');
+  pw.style.display = 'block';
+  pt.textContent = 'Uploading and extracting text...';
+
+  const formData = new FormData();
+  formData.append('file', file);
+
+  fetch('/analyze', { method: 'POST', body: formData })
+    .then(r => r.json())
+    .then(data => {
+      pw.style.display = 'none';
+      if (data.error) { showNotif(data.error, 'error'); return; }
+      docData = data;
+      fullText = data.full_text || '';
+      document.getElementById('filename-display').textContent = data.filename;
+      populateAll(data);
+      showPanel('overview');
+      showNotif('Document analyzed successfully!', 'success');
+    })
+    .catch(err => {
+      pw.style.display = 'none';
+      showNotif('Error analyzing document: ' + err.message, 'error');
+    });
+}
+
+function populateAll(d) {
+  populateOverview(d);
+  populateSummary(d.summary);
+  populateKeywords(d.keywords);
+  populateSentiment(d.sentiment);
+  populateEntities(d.entities);
+  populateClassification(d.classification);
+  populateTables(d.tables);
+  populateChatSuggestions();
+}
+
+// ─── Overview ───
+function populateOverview(d) {
+  const struct = d.structure;
+  document.getElementById('ov-file').textContent = d.filename;
+  document.getElementById('text-preview').textContent = d.text_preview;
+
+  const stats = [
+    { val: struct.word_count.toLocaleString(), label: 'Words' },
+    { val: struct.char_count.toLocaleString(), label: 'Characters' },
+    { val: struct.paragraphs, label: 'Paragraphs' },
+    { val: (d.reading_time || 1) + ' min', label: 'Reading Time' }
+  ];
+  document.getElementById('stats-grid').innerHTML = stats.map(s =>
+    `<div class="stat-card"><div class="stat-val">${s.val}</div><div class="stat-label">${s.label}</div></div>`
+  ).join('');
+
+  const h = struct.headings;
+  document.getElementById('structure-info').innerHTML = `
+    <div style="font-size:13px;color:var(--text-muted);line-height:1.8">
+      <strong style="color:var(--text)">Headings detected (${h.length}):</strong><br>
+      ${h.length ? h.slice(0,6).map(h => `<span style="color:var(--accent);font-family:var(--mono);font-size:12px">▸ ${h}</span>`).join('<br>') : '<em>None detected</em>'}
+      ${struct.lists > 0 ? `<br><br><strong style="color:var(--text)">List items:</strong> ${struct.lists}` : ''}
+    </div>`;
+}
+
+// ─── Summary ───
+function populateSummary(s) {
+  document.getElementById('sum-short').textContent = s.short || 'No summary available.';
+  document.getElementById('sum-detailed').textContent = s.detailed || 'No detailed summary.';
+
+  const bl = document.getElementById('bullet-list');
+  const bullets = Array.isArray(s.bullets) ? s.bullets : [s.bullets];
+  bl.innerHTML = bullets.filter(Boolean).map(b => `<li>${b}</li>`).join('');
+
+  // ELI5 - generate a simple version
+  const shortText = (s.short || '').replace(/[.!?]\s/g, '. ');
+  document.getElementById('sum-eli5').innerHTML = `
+    <div style="background:rgba(78,205,196,0.06);border:1px solid rgba(78,205,196,0.2);border-radius:10px;padding:16px;font-style:italic;">
+      👶 <strong style="color:var(--accent2)">Explain Like I'm 10:</strong><br><br>
+      ${simplifyText(s.short || '')}
+    </div>`;
+}
+
+function simplifyText(text) {
+  return text.replace(/furthermore/gi, 'also').replace(/therefore/gi, 'so')
+    .replace(/consequently/gi, 'that means').replace(/however/gi, 'but')
+    .replace(/additionally/gi, 'plus').replace(/subsequently/gi, 'then')
+    .replace(/utilize/gi, 'use').replace(/obtain/gi, 'get')
+    .replace(/demonstrate/gi, 'show') || text;
+}
+
+function switchTab(group, id, el) {
+  document.querySelectorAll(`#sum-short,#sum-detailed,#sum-bullets,#sum-eli5`).forEach(e => e.classList.remove('active'));
+  document.getElementById(`sum-${id}`).classList.add('active');
+  el.closest('.tab-bar').querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+}
+
+// ─── Keywords ───
+function populateKeywords(k) {
+  const cloud = document.getElementById('keyword-cloud');
+  cloud.innerHTML = (k.keywords || []).map((w, i) =>
+    `<span class="keyword ${i < 3 ? 'large' : ''}" onclick="askChat('What is \"${w}\" about in this document?')">${w}</span>`
+  ).join('');
+
+  const bigrams = document.getElementById('bigram-cloud');
+  bigrams.innerHTML = (k.bigrams || []).map(b =>
+    `<span class="keyword" onclick="askChat('Tell me about \"${b}\" in this document')">${b}</span>`
+  ).join('') || '<span style="color:var(--text-dim);font-size:13px">No bigrams found</span>';
+
+  const freq = k.frequency || {};
+  const entries = Object.entries(freq).slice(0, 15);
+  const maxVal = entries[0] ? entries[0][1] : 1;
+  document.getElementById('freq-bars').innerHTML = entries.map(([w, c]) => `
+    <div class="freq-bar-row">
+      <span class="freq-word">${w}</span>
+      <div class="freq-track"><div class="freq-fill" style="width:${Math.round(c/maxVal*100)}%"></div></div>
+      <span class="freq-val">${c}</span>
+    </div>`).join('');
+}
+
+// ─── Sentiment ───
+function populateSentiment(s) {
+  const cls = s.sentiment === 'Positive' ? 'sent-positive' : s.sentiment === 'Negative' ? 'sent-negative' : 'sent-neutral';
+  const icon = s.sentiment === 'Positive' ? '😊' : s.sentiment === 'Negative' ? '😞' : '😐';
+
+  document.getElementById('sentiment-main').innerHTML = `
+    <div class="card-title">Overall Sentiment</div>
+    <div class="sentiment-badge ${cls}">${icon} ${s.sentiment}</div>
+    <div style="font-size:13px;color:var(--text-muted)">
+      Confidence: <strong style="color:var(--text)">${s.confidence}%</strong><br>
+      Positive signals: <strong style="color:var(--success)">${s.pos_words_found}</strong> words &nbsp;
+      Negative signals: <strong style="color:var(--accent3)">${s.neg_words_found}</strong> words
+    </div>`;
+
+  document.getElementById('tone-card').innerHTML = `
+    <div class="card-title">Detected Tone</div>
+    <div>${(s.tones || []).map(t => `<span class="tone-pill">${t}</span>`).join('')}</div>
+    <div style="margin-top:12px;font-size:12px;color:var(--text-dim)">
+      Tone is determined by vocabulary patterns in the document.
+    </div>`;
+
+  document.getElementById('sentiment-bars').innerHTML = `
+    <div class="sentiment-bar-wrap">
+      <div class="sentiment-label"><span>Positive Score</span><span>${s.positive_score}%</span></div>
+      <div class="sentiment-track"><div class="sentiment-fill fill-pos" style="width:${Math.min(100,s.positive_score*10)}%"></div></div>
+    </div>
+    <div class="sentiment-bar-wrap">
+      <div class="sentiment-label"><span>Negative Score</span><span>${s.negative_score}%</span></div>
+      <div class="sentiment-track"><div class="sentiment-fill fill-neg" style="width:${Math.min(100,s.negative_score*10)}%"></div></div>
+    </div>
+    <div class="sentiment-bar-wrap">
+      <div class="sentiment-label"><span>Confidence</span><span>${s.confidence}%</span></div>
+      <div class="sentiment-track"><div class="sentiment-fill fill-acc" style="width:${s.confidence}%"></div></div>
+    </div>`;
+}
+
+// ─── Entities ───
+function populateEntities(e) {
+  const groups = [
+    { key: 'dates', label: '📅 Dates', cls: 'et-date' },
+    { key: 'names', label: '👤 Person Names', cls: 'et-name' },
+    { key: 'organizations', label: '🏢 Organizations', cls: 'et-org' },
+    { key: 'emails', label: '📧 Email Addresses', cls: 'et-email' },
+    { key: 'phones', label: '📞 Phone Numbers', cls: 'et-phone' },
+    { key: 'monetary', label: '💰 Monetary Values', cls: 'et-money' },
+    { key: 'percentages', label: '📈 Percentages', cls: 'et-pct' },
+    { key: 'urls', label: '🔗 URLs', cls: 'et-url' }
+  ];
+
+  const html = groups.map(g => {
+    const items = e[g.key] || [];
+    if (!items.length) return '';
+    return `<div class="entity-group card">
+      <div class="card-title">${g.label}</div>
+      <div class="entity-list">${items.map(i => `<span class="entity-tag ${g.cls}">${i}</span>`).join('')}</div>
+    </div>`;
+  }).join('');
+
+  document.getElementById('entity-groups').innerHTML = html ||
+    '<div class="empty-state">No named entities detected in this document.</div>';
+}
+
+// ─── Classification ───
+function populateClassification(c) {
+  const icons = {
+    'Resume/CV': '👔', 'Legal Document': '⚖️', 'Research Paper': '🔬',
+    'Invoice/Financial': '💼', 'News Article': '📰', 'Technical Document': '⚙️',
+    'Medical Document': '🏥', 'Educational Content': '🎓', 'General Document': '📄'
+  };
+  const icon = icons[c.category] || '📄';
+
+  document.getElementById('classify-main').innerHTML = `
+    <div class="classify-main">
+      <span class="classify-icon">${icon}</span>
+      <div style="flex:1">
+        <div class="classify-category">${c.category}</div>
+        <div class="classify-meta">
+          Confidence: ${c.confidence}%
+          ${c.secondary ? ` &nbsp;·&nbsp; Also looks like: <span style="color:var(--accent2)">${c.secondary}</span>` : ''}
+        </div>
+        <div class="confidence-bar">
+          <div class="conf-track"><div class="conf-fill" style="width:${c.confidence}%"></div></div>
+        </div>
+      </div>
+    </div>`;
+
+  const scores = c.all_scores || {};
+  document.getElementById('classify-scores').innerHTML = Object.entries(scores).map(([cat, score]) => `
+    <div class="freq-bar-row" style="margin-bottom:10px">
+      <span class="freq-word" style="width:160px;font-family:var(--font)">${cat}</span>
+      <div class="freq-track"><div class="freq-fill" style="width:${Math.min(100,score*4)}%"></div></div>
+      <span class="freq-val">${score}%</span>
+    </div>`).join('');
+}
+
+// ─── Tables ───
+function populateTables(tables) {
+  if (!tables || tables.length === 0) {
+    document.getElementById('tables-content').innerHTML =
+      '<div class="empty-state">No tables found in this document.</div>';
+    return;
+  }
+
+  document.getElementById('tables-content').innerHTML = tables.map((t, i) => `
+    <div class="card" style="margin-bottom:20px">
+      <div class="card-title" style="display:flex;justify-content:space-between">
+        Table ${i+1} (Page ${t.page}) — ${t.rows.length} rows
+        <button class="btn btn-sm btn-ghost" onclick="exportTable(${i})">⬇ Export CSV</button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr>${(t.headers||[]).map(h => `<th>${h}</th>`).join('')}</tr></thead>
+          <tbody>${t.rows.map(r => `<tr>${r.map(c => `<td>${c}</td>`).join('')}</tr>`).join('')}</tbody>
+        </table>
+      </div>
+    </div>`).join('');
+}
+
+function exportTable(idx) {
+  if (!docData || !docData.tables[idx]) return;
+  fetch('/export_table', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ table: docData.tables[idx], format: 'csv' })
+  })
+  .then(r => r.json())
+  .then(d => {
+    const blob = new Blob([d.data], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url;
+    a.download = `table_${idx+1}.csv`; a.click();
+    URL.revokeObjectURL(url);
+    showNotif('Table exported as CSV!', 'success');
+  });
+}
+
+// ─── Chat ───
+function populateChatSuggestions() {
+  const suggestions = [
+    'What is this document about?',
+    'What are the main points?',
+    'What conclusions does it make?',
+    'Who are the key people or organizations?'
+  ];
+  document.getElementById('suggestion-chips').innerHTML = suggestions.map(s =>
+    `<button class="btn btn-ghost btn-sm" onclick="askChat('${s}')">${s}</button>`
+  ).join('');
+}
+
+function askChat(q) {
+  document.getElementById('chat-input').value = q;
+  sendChat();
+}
+
+function sendChat() {
+  if (!fullText) { showNotif('Please upload a document first', 'error'); return; }
+  const input = document.getElementById('chat-input');
+  const q = input.value.trim();
+  if (!q) return;
+
+  input.value = '';
+  const msgs = document.getElementById('chat-messages');
+  const empty = document.getElementById('chat-empty');
+  if (empty) empty.remove();
+
+  msgs.innerHTML += `<div class="msg user"><div class="msg-bubble">${q}</div></div>`;
+  const thinkEl = document.createElement('div');
+  thinkEl.className = 'msg bot';
+  thinkEl.innerHTML = '<div class="msg-bubble" style="color:var(--text-dim)">Thinking...</div>';
+  msgs.appendChild(thinkEl);
+  msgs.scrollTop = msgs.scrollHeight;
+
+  fetch('/chat', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ question: q, text: fullText })
+  })
+  .then(r => r.json())
+  .then(d => {
+    const conf = d.confidence ? ` <span style="font-size:11px;color:var(--text-dim)">(confidence: ${d.confidence}%)</span>` : '';
+    thinkEl.innerHTML = `
+      <div class="msg-bubble">
+        ${d.answer || d.error || 'No answer found.'}${conf}
+        ${d.sources && d.sources.length ? `<div class="msg-sources">Sources: ${d.sources.length} passage(s) referenced</div>` : ''}
+      </div>`;
+    msgs.scrollTop = msgs.scrollHeight;
+  });
+}
+
+// ─── Navigation ───
+function showPanel(id) {
+  if (!docData && id !== 'upload') {
+    showNotif('Please upload a document first', 'error');
+    return;
+  }
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  document.getElementById('panel-' + id).classList.add('active');
+  document.getElementById('nav-' + id).classList.add('active');
+}
+
+// ─── Notification ───
+function showNotif(msg, type='success') {
+  const el = document.getElementById('notif');
+  el.textContent = msg;
+  el.className = `notif ${type} show`;
+  setTimeout(() => el.classList.remove('show'), 3000);
+}
+</script>
+</body>
+</html>
