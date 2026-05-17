@@ -1,24 +1,32 @@
 """
 Smart Document Analyzer - Flask Backend
 Features: Upload & Parse, Summarization, Keyword Extraction,
-Q&A (Chat with Doc), Sentiment Analysis, NER, Auto-Classification,
-Table Extraction, Entity Analysis
+Q&A (Chat with Doc via Gemini), Sentiment Analysis, NER,
+Auto-Classification, Table Extraction, Entity Analysis
 """
 
 import os
 import re
-import json
 import math
-import string
 import collections
-from pathlib import Path
-from flask import Flask, request, jsonify, render_template, send_from_directory
+from flask import Flask, request, jsonify, render_template
 import pdfplumber
 from docx import Document
 import pandas as pd
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 import numpy as np
+from dotenv import load_dotenv
+from google import genai
+
+# ─────────────────────────────────────────────
+# INIT
+# ─────────────────────────────────────────────
+load_dotenv()
+
+# Line ~26: change this
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+gemini_client = genai.Client(api_key=GEMINI_API_KEY)
 
 app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = 'uploads'
@@ -28,7 +36,7 @@ os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 ALLOWED_EXTENSIONS = {'pdf', 'docx', 'txt', 'png', 'jpg', 'jpeg'}
 
 # ─────────────────────────────────────────────
-# STOP WORDS (built-in, no nltk needed)
+# STOP WORDS
 # ─────────────────────────────────────────────
 STOP_WORDS = set("""
 a about above after again against all also am an and any are aren't as at be because
@@ -113,11 +121,14 @@ def extract_text(filepath, ext):
 # ─────────────────────────────────────────────
 def detect_structure(text):
     lines = text.split('\n')
-    structure = {'headings': [], 'paragraphs': 0, 'lists': 0, 'word_count': 0, 'char_count': len(text)}
-
-    heading_pattern = re.compile(r'^(#{1,6}\s.+|[A-Z][A-Z\s]{4,}[A-Z]$|^\d+\.\s[A-Z].+)', re.MULTILINE)
+    structure = {
+        'headings': [],
+        'paragraphs': 0,
+        'lists': 0,
+        'word_count': 0,
+        'char_count': len(text)
+    }
     list_pattern = re.compile(r'^\s*[-•*]\s|^\s*\d+[.)]\s', re.MULTILINE)
-
     for line in lines:
         stripped = line.strip()
         if stripped and re.match(r'^(#{1,6}\s.+|[A-Z][A-Z\s]{4,50}$|\d+\.\s[A-Z])', stripped):
@@ -130,7 +141,7 @@ def detect_structure(text):
 
 
 # ─────────────────────────────────────────────
-# SMART SUMMARIZATION
+# SUMMARIZATION
 # ─────────────────────────────────────────────
 def tokenize_sentences(text):
     text = re.sub(r'\n+', ' ', text)
@@ -140,7 +151,7 @@ def tokenize_sentences(text):
 
 def score_sentences_tfidf(sentences):
     if len(sentences) < 2:
-        return sentences
+        return np.ones(len(sentences))
     try:
         vectorizer = TfidfVectorizer(stop_words='english', max_features=500)
         tfidf_matrix = vectorizer.fit_transform(sentences)
@@ -150,14 +161,10 @@ def score_sentences_tfidf(sentences):
         return np.ones(len(sentences))
 
 
-def summarize(text, mode='short', eli5=False):
+def summarize(text, mode='short'):
     sentences = tokenize_sentences(text)
     if not sentences:
         return "Could not extract meaningful content."
-
-    if eli5:
-        short = summarize(text, 'short')
-        return f"Here's the simple version: {short}\n\n(Think of it like this: the document talks about {extract_keywords(text, top_n=3)['keywords'][0] if extract_keywords(text)['keywords'] else 'the main topic'} and gives information about it in simple steps.)"
 
     scores = score_sentences_tfidf(sentences)
     ranked = sorted(zip(scores, range(len(sentences)), sentences), reverse=True)
@@ -178,8 +185,19 @@ def summarize(text, mode='short', eli5=False):
         return ' '.join([s for _, _, s in top])
 
 
+def eli5_summary(text):
+    short = summarize(text, 'short')
+    kw = extract_keywords(text, top_n=3)
+    topic = kw['keywords'][0] if kw['keywords'] else 'the main topic'
+    return (
+        f"Here's the simple version: {short}\n\n"
+        f"(Think of it like this: the document talks about '{topic}' "
+        f"and gives information about it in simple steps.)"
+    )
+
+
 # ─────────────────────────────────────────────
-# KEYWORD & TOPIC EXTRACTION
+# KEYWORD EXTRACTION
 # ─────────────────────────────────────────────
 def extract_keywords(text, top_n=15):
     words = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
@@ -205,12 +223,10 @@ def extract_keywords(text, top_n=15):
     ranked = sorted(tfidf_scores.items(), key=lambda x: x[1], reverse=True)
     keywords = [w for w, _ in ranked[:top_n]]
 
-    # Bigrams
     bigrams = []
     for i in range(len(words) - 1):
-        bigram = f"{words[i]} {words[i+1]}"
-        if words[i] not in STOP_WORDS and words[i+1] not in STOP_WORDS:
-            bigrams.append(bigram)
+        if words[i] not in STOP_WORDS and words[i + 1] not in STOP_WORDS:
+            bigrams.append(f"{words[i]} {words[i+1]}")
     bigram_freq = collections.Counter(bigrams).most_common(5)
 
     return {
@@ -221,24 +237,25 @@ def extract_keywords(text, top_n=15):
 
 
 # ─────────────────────────────────────────────
-# SENTIMENT ANALYSIS (rule-based, no external libs)
+# SENTIMENT ANALYSIS
 # ─────────────────────────────────────────────
 POSITIVE_WORDS = set("""
 good great excellent amazing wonderful fantastic outstanding superb brilliant perfect
 positive success successful achieve accomplished effective efficient helpful useful
-beneficial valuable important significant impressive notable remarkable excellent love
-like enjoy appreciate recommend satisfied happy pleased delighted excellent quality
+beneficial valuable important significant impressive notable remarkable love
+like enjoy appreciate recommend satisfied happy pleased delighted quality
 best better improve improvement gain profit growth strong strengths opportunity
-advantage benefit recommend innovative creative innovative solution resolve"""
-.lower().split())
+advantage benefit innovative creative solution resolve
+""".lower().split())
 
 NEGATIVE_WORDS = set("""
 bad poor terrible horrible awful dreadful negative fail failure failed problem issue
 concern risk threat weakness difficult hard challenge obstacle barrier limitation
-lack missing loss decline decrease reduce problem error mistake wrong incorrect
+lack missing loss decline decrease reduce error mistake wrong incorrect
 inadequate insufficient unsatisfactory disappointing unacceptable harmful dangerous
-severe critical urgent serious unfortunately however despite although yet but
-unfortunately sadly regret complaint ineffective inefficient costly expensive""".lower().split())
+severe critical urgent serious unfortunately sadly regret complaint ineffective
+inefficient costly expensive
+""".lower().split())
 
 FORMAL_WORDS = set("therefore thus hence accordingly consequently furthermore moreover additionally pursuant whereby herein thereof".split())
 LEGAL_WORDS = set("contract agreement clause section article party parties liability obligation covenant warrant indemnify breach terminate null void enforce".split())
@@ -262,7 +279,6 @@ def analyze_sentiment(text):
         sentiment = "Neutral"
         confidence = 65
 
-    # Tone detection
     formal_count = sum(1 for w in words if w in FORMAL_WORDS)
     legal_count = sum(1 for w in words if w in LEGAL_WORDS)
     emotional_count = sum(1 for w in words if w in EMOTIONAL_WORDS)
@@ -289,21 +305,15 @@ def analyze_sentiment(text):
 
 
 # ─────────────────────────────────────────────
-# NAMED ENTITY RECOGNITION (regex-based)
+# NAMED ENTITY RECOGNITION
 # ─────────────────────────────────────────────
 def extract_entities(text):
     entities = {
-        "dates": [],
-        "emails": [],
-        "phones": [],
-        "urls": [],
-        "organizations": [],
-        "monetary": [],
-        "percentages": [],
-        "names": []
+        "dates": [], "emails": [], "phones": [],
+        "urls": [], "organizations": [], "monetary": [],
+        "percentages": [], "names": []
     }
 
-    # Dates
     date_patterns = [
         r'\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b',
         r'\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+\d{1,2},?\s+\d{4}\b',
@@ -313,36 +323,25 @@ def extract_entities(text):
     for p in date_patterns:
         entities["dates"].extend(re.findall(p, text, re.IGNORECASE))
 
-    # Emails
     entities["emails"] = re.findall(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b', text)
-
-    # Phones
     entities["phones"] = re.findall(r'\b(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b', text)
-
-    # URLs
     entities["urls"] = re.findall(r'https?://[^\s]+', text)
-
-    # Monetary
-    entities["monetary"] = re.findall(r'(?:[$€£₹¥]\s*[\d,]+(?:\.\d{2})?|\b[\d,]+(?:\.\d{2})?\s*(?:USD|EUR|GBP|INR|dollars?|euros?|pounds?)\b)', text, re.IGNORECASE)
-
-    # Percentages
+    entities["monetary"] = re.findall(
+        r'(?:[$€£₹¥]\s*[\d,]+(?:\.\d{2})?|\b[\d,]+(?:\.\d{2})?\s*(?:USD|EUR|GBP|INR|dollars?|euros?|pounds?)\b)',
+        text, re.IGNORECASE
+    )
     entities["percentages"] = re.findall(r'\b\d+(?:\.\d+)?%\b', text)
-
-    # Organization-like (ALL CAPS words or known suffixes)
     entities["organizations"] = list(set(re.findall(
         r'\b(?:[A-Z][a-z]+ (?:Inc|Corp|Ltd|LLC|Co|Company|Group|Institute|University|College|Association|Organization|Foundation|Department|Ministry|Agency)\b|[A-Z]{2,6}\b)',
         text
     )))[:10]
 
-    # Proper names (simple heuristic: Capitalized pairs not at sentence start)
-    sentences = text.split('.')
     names = []
-    for sent in sentences:
+    for sent in text.split('.'):
         found = re.findall(r'(?<!\. )(?<![A-Z])\b([A-Z][a-z]+ [A-Z][a-z]+)\b', sent)
         names.extend(found)
     entities["names"] = list(set(names))[:10]
 
-    # Deduplicate
     for k in entities:
         entities[k] = list(set(entities[k]))[:8]
 
@@ -391,43 +390,37 @@ def classify_document(text):
 
 
 # ─────────────────────────────────────────────
-# Q&A (Chat with Document)
+# Q&A — GEMINI (google-genai SDK)
 # ─────────────────────────────────────────────
 def answer_question(question, text):
-    sentences = tokenize_sentences(text)
-    if not sentences:
-        return {"answer": "No content found in document.", "sources": []}
+    context = text[:12000] if len(text) > 12000 else text
+
+    prompt = f"""You are a helpful assistant. Answer the user's question based ONLY on the document content provided below.
+If the answer is not found in the document, say "I couldn't find that information in the document."
+
+Document:
+{context}
+
+Question: {question}
+
+Answer:"""
 
     try:
-        corpus = sentences + [question]
-        vectorizer = TfidfVectorizer(stop_words='english', ngram_range=(1, 2))
-        tfidf_matrix = vectorizer.fit_transform(corpus)
-        question_vec = tfidf_matrix[-1]
-        doc_vecs = tfidf_matrix[:-1]
-        similarities = cosine_similarity(question_vec, doc_vecs).flatten()
-        top_indices = similarities.argsort()[-5:][::-1]
-        top_sentences = [(sentences[i], float(similarities[i])) for i in top_indices if similarities[i] > 0.05]
-    except Exception:
-        words = set(re.findall(r'\b\w+\b', question.lower())) - STOP_WORDS
-        scored = []
-        for i, s in enumerate(sentences):
-            s_words = set(re.findall(r'\b\w+\b', s.lower()))
-            score = len(words & s_words) / (len(words) + 1)
-            scored.append((s, score))
-        top_sentences = sorted(scored, key=lambda x: x[1], reverse=True)[:5]
-        top_sentences = [(s, sc) for s, sc in top_sentences if sc > 0]
-
-    if not top_sentences:
-        return {"answer": "I couldn't find relevant information for that question in this document.", "sources": []}
-
-    answer_parts = [s for s, _ in top_sentences[:3]]
-    answer = ' '.join(answer_parts)
-
-    return {
-        "answer": answer,
-        "confidence": round(top_sentences[0][1] * 100, 1) if top_sentences else 0,
-        "sources": [s[:200] + "..." if len(s) > 200 else s for s, _ in top_sentences[:3]]
-    }
+        response = gemini_client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=prompt
+        )
+        return {
+            "answer": response.text.strip(),
+            "confidence": 95,
+            "sources": []
+        }
+    except Exception as e:
+        return {
+            "answer": f"Gemini error: {str(e)}",
+            "confidence": 0,
+            "sources": []
+        }
 
 
 # ─────────────────────────────────────────────
@@ -448,7 +441,7 @@ def tables_to_json(tables):
         result.append({
             "page": table_info.get("page", 1),
             "headers": headers,
-            "rows": rows[:50]  # limit to 50 rows for display
+            "rows": rows[:50]
         })
     return result
 
@@ -483,36 +476,26 @@ def analyze():
             return jsonify({"error": "Could not extract meaningful text from document."}), 400
 
         structure = detect_structure(text)
-        summary_short = summarize(text, 'short')
-        summary_detailed = summarize(text, 'detailed')
-        summary_bullets = summarize(text, 'bullets')
-        keywords_data = extract_keywords(text)
-        sentiment = analyze_sentiment(text)
-        entities = extract_entities(text)
-        classification = classify_document(text)
-        tables = tables_to_json(raw_tables)
-
-        # Reading time estimate
-        word_count = structure['word_count']
-        reading_time = max(1, round(word_count / 200))
+        reading_time = max(1, round(structure['word_count'] / 200))
 
         return jsonify({
             "success": True,
             "filename": file.filename,
             "text_preview": text[:1000],
-            "full_text": text,  # used for Q&A
+            "full_text": text,
             "structure": structure,
             "reading_time": reading_time,
             "summary": {
-                "short": summary_short,
-                "detailed": summary_detailed,
-                "bullets": summary_bullets if isinstance(summary_bullets, list) else [summary_bullets]
+                "short": summarize(text, 'short'),
+                "detailed": summarize(text, 'detailed'),
+                "bullets": summarize(text, 'bullets'),
+                "eli5": eli5_summary(text)
             },
-            "keywords": keywords_data,
-            "sentiment": sentiment,
-            "entities": entities,
-            "classification": classification,
-            "tables": tables
+            "keywords": extract_keywords(text),
+            "sentiment": analyze_sentiment(text),
+            "entities": extract_entities(text),
+            "classification": classify_document(text),
+            "tables": tables_to_json(raw_tables)
         })
 
     except Exception as e:
@@ -549,8 +532,7 @@ def export_table():
     df = pd.DataFrame(rows, columns=headers if headers else None)
 
     if fmt == 'csv':
-        csv_data = df.to_csv(index=False)
-        return jsonify({"data": csv_data, "format": "csv"})
+        return jsonify({"data": df.to_csv(index=False), "format": "csv"})
     else:
         return jsonify({"data": df.to_json(orient='records'), "format": "json"})
 
